@@ -1,39 +1,48 @@
 import { createClient } from '@/lib/supabase/server'
 import AppShell from '@/components/AppShell'
+import ProjectsTable, { ProjectRow } from '@/components/ProjectsTable'
+import { ProjectStatus } from '@/lib/constants'
 
 export default async function ArchivePage() {
   const supabase = await createClient()
-  const { data } = await supabase
+
+  const { data: statusesData } = await supabase
+    .from('project_statuses')
+    .select('id, label, color, sort_order, is_active, visible_in')
+    .order('sort_order', { ascending: true })
+  const statuses = (statusesData ?? []) as ProjectStatus[]
+  const visibleStatusIds = statuses.filter((s) => s.visible_in.includes('archive')).map((s) => s.id)
+
+  const { data: projectsData } = await supabase
     .from('projects')
-    .select('id, title, address, status, clients(name)')
-    .in('status', ['completed', 'cancelled'])
+    .select('id, case_number, title, address, street, house_number, city, address_note, additional_contact, description, status_id, urgency_level, created_at, client_id, clients(name)')
+    .in('status_id', visibleStatusIds.length > 0 ? visibleStatusIds : ['00000000-0000-0000-0000-000000000000'])
     .order('created_at', { ascending: false })
 
-  const projects = data ?? []
+  const { data: clientsData } = await supabase.from('clients').select('id, name').order('name')
+
+  const projects: ProjectRow[] = (projectsData ?? []).map((p: any) => ({
+    id: p.id,
+    case_number: p.case_number,
+    title: p.title,
+    client: p.clients?.name ?? '-',
+    client_id: p.client_id,
+    address: p.address,
+    street: p.street,
+    house_number: p.house_number,
+    city: p.city,
+    address_note: p.address_note,
+    additional_contact: p.additional_contact,
+    description: p.description,
+    status_id: p.status_id,
+    urgency_level: p.urgency_level,
+    created_at: p.created_at,
+  }))
 
   return (
     <AppShell>
       <h1 className="text-2xl font-bold mb-4">ארכיון</h1>
-      <div className="bg-white rounded-lg shadow overflow-x-auto">
-        <table className="w-full text-right">
-          <thead className="bg-gray-100 text-sm text-gray-600">
-            <tr><th className="p-3">פרויקט</th><th className="p-3">לקוח</th><th className="p-3">כתובת</th><th className="p-3">סטטוס</th></tr>
-          </thead>
-          <tbody>
-            {projects.map((p: any) => (
-              <tr key={p.id} className="border-t">
-                <td className="p-3">{p.title}</td>
-                <td className="p-3">{p.clients?.name ?? '-'}</td>
-                <td className="p-3">{p.address ?? '-'}</td>
-                <td className="p-3">{p.status === 'completed' ? 'הושלם' : 'בוטל'}</td>
-              </tr>
-            ))}
-            {projects.length === 0 && (
-              <tr><td colSpan={4} className="p-6 text-center text-gray-400">הארכיון ריק</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <ProjectsTable projects={projects} clients={clientsData ?? []} statuses={statuses} showStatusFilter={false} />
     </AppShell>
   )
 }

@@ -3,16 +3,27 @@ import AppShell from '@/components/AppShell'
 import SearchBar from '@/components/SearchBar'
 import UrgentCard from '@/components/UrgentCard'
 import NotesPanel from '@/components/NotesPanel'
+import ProjectsTable, { ProjectRow } from '@/components/ProjectsTable'
+import { ProjectStatus } from '@/lib/constants'
 import Link from 'next/link'
-import { STATUS_LABELS, STATUS_COLORS } from '@/lib/constants'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
 
+  const { data: statusesData } = await supabase
+    .from('project_statuses')
+    .select('id, label, color, sort_order, is_active, visible_in')
+    .order('sort_order', { ascending: true })
+  const statuses = (statusesData ?? []) as ProjectStatus[]
+  // "תיקים פתוחים" = הסטטוס שלו לא מסומן כ"ארכיון" (מחליף את status !== completed/cancelled הקבוע)
+  const archiveStatusIds = new Set(statuses.filter((s) => s.visible_in.includes('archive')).map((s) => s.id))
+
   const { data: projectsData } = await supabase
     .from('projects')
-    .select('id, title, address, status, urgency_level, created_at, clients(name)')
+    .select('id, case_number, title, address, street, house_number, city, address_note, additional_contact, description, status_id, urgency_level, created_at, client_id, clients(name)')
     .order('created_at', { ascending: false })
+
+  const { data: clientsData } = await supabase.from('clients').select('id, name').order('name')
 
   const { data: notesData } = await supabase
     .from('notes')
@@ -21,18 +32,27 @@ export default async function DashboardPage() {
 
   const { data: milestonesData } = await supabase
     .from('payment_milestones')
-    .select('id, status')
+    .select('id, title, amount, status, condition_met, projects(id, title, clients(name))')
+
+  // "פרויקטים שאושרו" - נספר לפי הצעות מחיר בסטטוס approved (לא ארכיון), לא לפי סטטוס תיק חופשי
+  const { data: approvedQuotesData } = await supabase
+    .from('quotes')
+    .select('project_id')
+    .eq('status', 'approved')
+    .is('archived_at', null)
 
   const projects = (projectsData ?? []) as any[]
-    const today = new Date().toISOString().slice(0, 10)
+  const today = new Date().toISOString().slice(0, 10)
   const allNotes = notesData ?? []
   const notes = allNotes.filter((n) => !n.reminder_date || n.reminder_date <= today)
   const futureNotesCount = allNotes.length - notes.length
-  const milestones = milestonesData ?? []
+  const milestones = (milestonesData ?? []) as any[]
 
-  const activeProjects = projects.filter((p) => p.status !== 'completed' && p.status !== 'cancelled')
-  const approvedCount = projects.filter((p) => p.status === 'approved').length
+  const activeProjects = projects.filter((p) => !p.status_id || !archiveStatusIds.has(p.status_id))
+  const approvedProjectIds = new Set((approvedQuotesData ?? []).map((q: any) => q.project_id))
+  const approvedCount = approvedProjectIds.size
   const pendingMilestones = milestones.filter((m) => m.status !== 'paid')
+  const collectionAlerts = milestones.filter((m) => m.condition_met && m.status === 'pending')
 
   const urgentProjects = projects
     .filter((p) => p.urgency_level !== 'normal')
@@ -50,7 +70,23 @@ export default async function DashboardPage() {
     client: p.clients?.name ?? '-',
   }))
 
-  const recentProjects = projects.slice(0, 8)
+  const recentProjects: ProjectRow[] = projects.slice(0, 8).map((p) => ({
+    id: p.id,
+    case_number: p.case_number,
+    title: p.title,
+    client: p.clients?.name ?? '-',
+    client_id: p.client_id,
+    address: p.address,
+    street: p.street,
+    house_number: p.house_number,
+    city: p.city,
+    address_note: p.address_note,
+    additional_contact: p.additional_contact,
+    description: p.description,
+    status_id: p.status_id,
+    urgency_level: p.urgency_level,
+    created_at: p.created_at,
+  }))
 
   return (
     <AppShell>
@@ -84,52 +120,38 @@ export default async function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                <UrgentCard allProjects={allProjectsForSelect} urgentProjects={urgentProjects as any} />
-        <NotesPanel notes={notes} projects={allProjectsForSelect} />
+        <UrgentCard allProjects={allProjectsForSelect} urgentProjects={urgentProjects as any} />
+        <NotesPanel notes={notes} futureCount={futureNotesCount} projects={allProjectsForSelect} />
       </div>
 
       <div className="mb-8">
         <div className="bg-white rounded-lg shadow p-4">
           <h2 className="text-lg font-semibold mb-2">🔔 התראות מערכת</h2>
-          <p className="text-gray-400 text-sm">
-            אין התראות כרגע - פיצ&apos;ר התראות אוטומטיות על תיקים "תקועים" ייבנה בשלב עתידי
-          </p>
+          {collectionAlerts.length === 0 ? (
+            <p className="text-gray-400 text-sm">אין התראות כרגע</p>
+          ) : (
+            <ul className="space-y-2">
+              {collectionAlerts.map((m) => (
+                <li key={m.id}>
+                  <Link
+                    href="/collections"
+                    className="flex items-center justify-between text-sm border-b py-2 hover:bg-gray-50 -mx-2 px-2 rounded"
+                  >
+                    <span>
+                      💰 לדרוש תשלום: {m.title} - {m.projects?.title ?? '-'} ({m.projects?.clients?.name ?? '-'})
+                    </span>
+                    <span className="font-medium">₪{Number(m.amount).toLocaleString()}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
 
       <div>
         <h2 className="text-lg font-semibold mb-3">תיקים אחרונים</h2>
-        <div className="bg-white rounded-lg shadow overflow-x-auto">
-          <table className="w-full text-right">
-            <thead className="bg-gray-100 text-sm text-gray-600">
-              <tr>
-                <th className="p-3">פרויקט</th>
-                <th className="p-3">לקוח</th>
-                <th className="p-3">כתובת</th>
-                <th className="p-3">סטטוס</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recentProjects.map((p) => (
-                <tr key={p.id} className="border-t hover:bg-gray-50">
-                  <td className="p-0">
-                    <Link href={`/projects/${p.id}`} className="block p-3">{p.title}</Link>
-                  </td>
-                  <td className="p-3">{p.clients?.name ?? '-'}</td>
-                  <td className="p-3">{p.address ?? '-'}</td>
-                  <td className="p-3">
-                    <span className={`text-xs px-2 py-1 rounded-full ${STATUS_COLORS[p.status]}`}>
-                      {STATUS_LABELS[p.status] ?? p.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-              {recentProjects.length === 0 && (
-                <tr><td colSpan={4} className="p-6 text-center text-gray-400">אין פרויקטים עדיין</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <ProjectsTable projects={recentProjects} clients={clientsData ?? []} statuses={statuses} showStatusFilter={false} showActions={false} />
       </div>
     </AppShell>
   )

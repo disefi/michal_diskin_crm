@@ -3,6 +3,7 @@ import Link from 'next/link'
 const LINKS = [
   { href: '/dashboard', label: 'דשבורד', icon: '🏠' },
   { href: '/clients', label: 'לקוחות', icon: '👥' },
+  { href: '/projects', label: 'תיקים', icon: '📁' },
   { href: '/quotes', label: 'הצעות מחיר', icon: '📄' },
   { href: '/in-progress', label: 'בביצוע', icon: '🛠️' },
   { href: '/collections', label: 'גביות', icon: '💰' },

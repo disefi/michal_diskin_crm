@@ -61,6 +61,7 @@ export default function SearchBar() {
               <div>
                 <div className="text-sm font-medium">{r.title}</div>
                 <div className="text-xs text-gray-500">{r.client} · {r.address}</div>
+                {r.case_number && <div className="text-xs text-gray-400 font-mono">{r.case_number}</div>}
               </div>
               <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${STATUS_COLORS[r.status]}`}>
                 {STATUS_LABELS[r.status] ?? r.status}

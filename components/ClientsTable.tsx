@@ -1,6 +1,8 @@
 'use client'
 import { useState, useTransition } from 'react'
 import { saveClient, deleteClient } from '@/app/clients/actions'
+import SortableHeader from './SortableHeader'
+import { useSort } from '@/lib/useSort'
 
 type Client = {
   id: string
@@ -15,6 +17,7 @@ export default function ClientsTable({ clients }: { clients: Client[] }) {
   const [editing, setEditing] = useState<Client | 'new' | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
+  const { sorted, sortKey, sortDir, toggleSort } = useSort<Client>(clients, 'name', 'asc')
 
   function handleDelete(client: Client) {
     if (!confirm(`למחוק את הלקוח "${client.name}"? פעולה זו לא ניתנת לביטול.`)) return
@@ -47,15 +50,15 @@ export default function ClientsTable({ clients }: { clients: Client[] }) {
         <table className="w-full text-right">
           <thead className="bg-gray-100 text-sm text-gray-600">
             <tr>
-              <th className="p-3">שם</th>
-              <th className="p-3">טלפון</th>
-              <th className="p-3">אימייל</th>
-              <th className="p-3">כתובת</th>
+              <SortableHeader label="שם" sortKey="name" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
+              <SortableHeader label="טלפון" sortKey="phone" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
+              <SortableHeader label="אימייל" sortKey="email" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
+              <SortableHeader label="כתובת" sortKey="address" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
               <th className="p-3"></th>
             </tr>
           </thead>
           <tbody>
-            {clients.map((c) => (
+            {sorted.map((c) => (
               <tr key={c.id} className="border-t hover:bg-gray-50">
                 <td className="p-3 font-medium">{c.name}</td>
                 <td className="p-3">{c.phone ?? '-'}</td>

@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
   const supabase = await createClient()
   const { data } = await supabase
     .from('projects')
-    .select('id, title, address, status, clients(name)')
+    .select('id, case_number, title, address, status, clients(name)')
     .order('created_at', { ascending: false })
     .limit(200)
 
@@ -23,6 +23,7 @@ export async function GET(req: NextRequest) {
     .slice(0, 8)
     .map((p: any) => ({
       id: p.id,
+      case_number: p.case_number,
       title: p.title,
       client: p.clients?.name ?? '-',
       address: p.address,

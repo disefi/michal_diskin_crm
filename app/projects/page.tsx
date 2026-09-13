@@ -3,7 +3,7 @@ import AppShell from '@/components/AppShell'
 import ProjectsTable, { ProjectRow } from '@/components/ProjectsTable'
 import { ProjectStatus } from '@/lib/constants'
 
-export default async function InProgressPage() {
+export default async function ProjectsPage() {
   const supabase = await createClient()
 
   const { data: statusesData } = await supabase
@@ -11,12 +11,10 @@ export default async function InProgressPage() {
     .select('id, label, color, sort_order, is_active, visible_in')
     .order('sort_order', { ascending: true })
   const statuses = (statusesData ?? []) as ProjectStatus[]
-  const visibleStatusIds = statuses.filter((s) => s.visible_in.includes('in_progress')).map((s) => s.id)
 
   const { data: projectsData } = await supabase
     .from('projects')
     .select('id, case_number, title, address, street, house_number, city, address_note, additional_contact, description, status_id, urgency_level, created_at, client_id, clients(name)')
-    .in('status_id', visibleStatusIds.length > 0 ? visibleStatusIds : ['00000000-0000-0000-0000-000000000000'])
     .order('created_at', { ascending: false })
 
   const { data: clientsData } = await supabase.from('clients').select('id, name').order('name')
@@ -41,8 +39,8 @@ export default async function InProgressPage() {
 
   return (
     <AppShell>
-      <h1 className="text-2xl font-bold mb-4">בביצוע</h1>
-      <ProjectsTable projects={projects} clients={clientsData ?? []} statuses={statuses} showStatusFilter={false} />
+      <h1 className="text-2xl font-bold mb-4">תיקים (פרויקטים)</h1>
+      <ProjectsTable projects={projects} clients={clientsData ?? []} statuses={statuses} />
     </AppShell>
   )
 }

@@ -34,6 +34,7 @@ export async function saveNote(formData: FormData) {
     if (error) console.error('saveNote (insert) error:', error)
   }
   revalidatePath('/dashboard')
+  if (projectId) revalidatePath(`/projects/${projectId}`)
 }
 
 export async function deleteNote(formData: FormData) {

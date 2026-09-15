@@ -105,6 +105,18 @@ function StatusRow({
           </select>
         </div>
         <VisibleInCheckboxes namePrefix="visible_in" defaultValues={status.visible_in} />
+        <label className="flex items-center gap-2 text-xs text-gray-600">
+          🐌 להתריע על תיק "תקוע" אחרי
+          <input
+            type="number"
+            name="stale_after_days"
+            min={1}
+            defaultValue={status.stale_after_days ?? ''}
+            placeholder="ריק = בלי התראה"
+            className="w-24 border rounded px-2 py-1 text-xs"
+          />
+          ימים ללא שינוי סטטוס
+        </label>
         {error && <p className="text-xs text-red-600">{error}</p>}
         <div className="flex gap-2 justify-end">
           <button type="button" onClick={() => setEditing(false)} className="text-xs text-gray-500 px-2 py-1">
@@ -151,6 +163,11 @@ function StatusRow({
             ))
           )}
         </div>
+        {status.stale_after_days != null && (
+          <span className="text-[11px] text-amber-700 whitespace-nowrap" title="סף התראת נודניק">
+            🐌 {status.stale_after_days} ימים
+          </span>
+        )}
         {!status.is_active && <span className="text-xs text-gray-400">מושבת</span>}
         <div className="flex gap-2">
           <button onClick={() => setEditing(true)} className="text-gray-500 hover:scale-110 transition" title="עריכה">
@@ -232,6 +249,17 @@ export default function ProjectStatusesSettings({ statuses: initialStatuses }: {
             </select>
           </div>
           <VisibleInCheckboxes namePrefix="visible_in" defaultValues={['projects', 'dashboard']} />
+          <label className="flex items-center gap-2 text-xs text-gray-600">
+            🐌 להתריע על תיק "תקוע" אחרי
+            <input
+              type="number"
+              name="stale_after_days"
+              min={1}
+              placeholder="ריק = בלי התראה"
+              className="w-24 border rounded px-2 py-1 text-xs"
+            />
+            ימים ללא שינוי סטטוס
+          </label>
           {addError && <p className="text-xs text-red-600">{addError}</p>}
           <div className="flex justify-end">
             <button type="submit" disabled={isPending} className="text-xs bg-gray-800 text-white px-3 py-1 rounded disabled:opacity-50">

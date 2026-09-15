@@ -8,6 +8,7 @@ import InlineUrgencySelect from './InlineUrgencySelect'
 import SortableHeader from './SortableHeader'
 import { useSort } from '@/lib/useSort'
 import { ProjectStatus } from '@/lib/constants'
+import StaleBadge from './StaleBadge'
 
 export type ProjectRow = {
   id: string
@@ -23,8 +24,13 @@ export type ProjectRow = {
   additional_contact: string | null
   description: string | null
   status_id: string | null
+  status_changed_at: string | null
   urgency_level: string
   created_at: string
+  /** Phase 8 ("נודניק") - מחושב בשרת (page.tsx) ולא בקומפוננטה הזו, כדי למנוע
+   *  hydration mismatch: Date.now() נותן ערך שונה מעט בשרת לעומת בדפדפן בזמן ה-hydration. */
+  stale: boolean
+  staleDays: number
 }
 
 /**
@@ -109,7 +115,12 @@ export default function ProjectsTable({
                 </td>
                 <td className="p-3">{p.client}</td>
                 <td className="p-3">{p.address ?? '-'}</td>
-                <td className="p-3"><InlineStatusSelect projectId={p.id} statusId={p.status_id} statuses={statuses} /></td>
+                <td className="p-3">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <InlineStatusSelect projectId={p.id} statusId={p.status_id} statuses={statuses} />
+                    <StaleBadge stale={p.stale} days={p.staleDays} />
+                  </div>
+                </td>
                 <td className="p-3"><InlineUrgencySelect projectId={p.id} urgency={p.urgency_level} /></td>
                 {showActions && (
                   <td className="p-3">

@@ -4,7 +4,9 @@ import SearchBar from '@/components/SearchBar'
 import UrgentCard from '@/components/UrgentCard'
 import NotesPanel from '@/components/NotesPanel'
 import ProjectsTable, { ProjectRow } from '@/components/ProjectsTable'
-import { ProjectStatus } from '@/lib/constants'
+import StaleAlertsList, { StaleAlertRow } from '@/components/StaleAlertsList'
+import { ProjectStatus, NudnikSettings } from '@/lib/constants'
+import { getStaleInfo } from '@/lib/staleness'
 import Link from 'next/link'
 
 export default async function DashboardPage() {
@@ -12,15 +14,22 @@ export default async function DashboardPage() {
 
   const { data: statusesData } = await supabase
     .from('project_statuses')
-    .select('id, label, color, sort_order, is_active, visible_in')
+    .select('id, label, color, sort_order, is_active, visible_in, stale_after_days')
     .order('sort_order', { ascending: true })
   const statuses = (statusesData ?? []) as ProjectStatus[]
   // "תיקים פתוחים" = הסטטוס שלו לא מסומן כ"ארכיון" (מחליף את status !== completed/cancelled הקבוע)
   const archiveStatusIds = new Set(statuses.filter((s) => s.visible_in.includes('archive')).map((s) => s.id))
 
+  const { data: nudnikSettingsData } = await supabase
+    .from('nudnik_settings')
+    .select('hide_badge_while_snoozed')
+    .eq('id', true)
+    .maybeSingle()
+  const nudnikSettings: NudnikSettings = { hide_badge_while_snoozed: nudnikSettingsData?.hide_badge_while_snoozed ?? true }
+
   const { data: projectsData } = await supabase
     .from('projects')
-    .select('id, case_number, title, address, street, house_number, city, address_note, additional_contact, description, status_id, urgency_level, created_at, client_id, clients(name)')
+    .select('id, case_number, title, address, street, house_number, city, address_note, additional_contact, description, status_id, status_changed_at, stale_snoozed_until, urgency_level, created_at, client_id, clients(name)')
     .order('created_at', { ascending: false })
 
   const { data: clientsData } = await supabase.from('clients').select('id, name').order('name')
@@ -32,7 +41,7 @@ export default async function DashboardPage() {
 
   const { data: milestonesData } = await supabase
     .from('payment_milestones')
-    .select('id, title, amount, status, condition_met, projects(id, title, clients(name))')
+    .select('id, title, amount, status, projects(id, title, clients(name))')
 
   // "פרויקטים שאושרו" - נספר לפי הצעות מחיר בסטטוס approved (לא ארכיון), לא לפי סטטוס תיק חופשי
   const { data: approvedQuotesData } = await supabase
@@ -52,7 +61,27 @@ export default async function DashboardPage() {
   const approvedProjectIds = new Set((approvedQuotesData ?? []).map((q: any) => q.project_id))
   const approvedCount = approvedProjectIds.size
   const pendingMilestones = milestones.filter((m) => m.status !== 'paid')
-  const collectionAlerts = milestones.filter((m) => m.condition_met && m.status === 'pending')
+  // Phase 9b - שדה status יחיד. 'requested' מוגדר אוטומטית כשהתנאי מתקיים
+  // (autoMarkMilestonesConditionMet) או ידנית ב-/collections - זה מה שמדליק את ההתראה.
+  const collectionAlerts = milestones.filter((m) => m.status === 'requested')
+
+  // Phase 8 + 8b ("נודניק") - תיקים שחצו את הסף שהוגדר לסטטוס הנוכחי שלהם ולא בדחייה כרגע.
+  // תיקים בארכיון לא נבדקים כלל (מטופל בתוך getStaleInfo).
+  const staleAlerts: StaleAlertRow[] = projects
+    .map((p) => {
+      const status = statuses.find((s) => s.id === p.status_id)
+      const info = getStaleInfo(p.status_id, p.status_changed_at, p.stale_snoozed_until, statuses, nudnikSettings.hide_badge_while_snoozed)
+      return {
+        id: p.id,
+        title: p.title,
+        client: p.clients?.name ?? '-',
+        days: info.days,
+        snoozeDays: status?.stale_after_days ?? 7,
+        showInAlerts: info.showInAlerts,
+      }
+    })
+    .filter((p) => p.showInAlerts)
+    .sort((a, b) => b.days - a.days)
 
   const urgentProjects = projects
     .filter((p) => p.urgency_level !== 'normal')
@@ -70,23 +99,29 @@ export default async function DashboardPage() {
     client: p.clients?.name ?? '-',
   }))
 
-  const recentProjects: ProjectRow[] = projects.slice(0, 8).map((p) => ({
-    id: p.id,
-    case_number: p.case_number,
-    title: p.title,
-    client: p.clients?.name ?? '-',
-    client_id: p.client_id,
-    address: p.address,
-    street: p.street,
-    house_number: p.house_number,
-    city: p.city,
-    address_note: p.address_note,
-    additional_contact: p.additional_contact,
-    description: p.description,
-    status_id: p.status_id,
-    urgency_level: p.urgency_level,
-    created_at: p.created_at,
-  }))
+  const recentProjects: ProjectRow[] = projects.slice(0, 8).map((p) => {
+    const badgeInfo = getStaleInfo(p.status_id, p.status_changed_at, p.stale_snoozed_until, statuses, nudnikSettings.hide_badge_while_snoozed)
+    return {
+      id: p.id,
+      case_number: p.case_number,
+      title: p.title,
+      client: p.clients?.name ?? '-',
+      client_id: p.client_id,
+      address: p.address,
+      street: p.street,
+      house_number: p.house_number,
+      city: p.city,
+      address_note: p.address_note,
+      additional_contact: p.additional_contact,
+      description: p.description,
+      status_id: p.status_id,
+      status_changed_at: p.status_changed_at,
+      stale: badgeInfo.showBadge,
+      staleDays: badgeInfo.days,
+      urgency_level: p.urgency_level,
+      created_at: p.created_at,
+    }
+  })
 
   return (
     <AppShell>
@@ -95,18 +130,22 @@ export default async function DashboardPage() {
         <SearchBar />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div className="bg-white rounded-lg shadow p-5">
           <div className="text-sm text-gray-500">📂 תיקים פתוחים</div>
           <div className="text-3xl font-bold mt-1">{activeProjects.length}</div>
         </div>
         <Link href="/collections" className="bg-white rounded-lg shadow p-5 block hover:ring-2 hover:ring-gray-300">
-          <div className="text-sm text-gray-500">💰 גביות ממתינות</div>
+          <div className="text-sm text-gray-500">💰 תשלומים ממתינים</div>
           <div className="text-3xl font-bold mt-1">{pendingMilestones.length}</div>
         </Link>
         <div className="bg-white rounded-lg shadow p-5 ring-2 ring-green-400">
           <div className="text-sm text-gray-500">🎉 פרויקטים שאושרו</div>
           <div className="text-3xl font-bold mt-1">{approvedCount}</div>
+        </div>
+        <div className={`bg-white rounded-lg shadow p-5 ${staleAlerts.length > 0 ? 'ring-2 ring-amber-400' : ''}`}>
+          <div className="text-sm text-gray-500">🐌 תיקים תקועים</div>
+          <div className="text-3xl font-bold mt-1">{staleAlerts.length}</div>
         </div>
       </div>
 
@@ -146,6 +185,13 @@ export default async function DashboardPage() {
               ))}
             </ul>
           )}
+        </div>
+      </div>
+
+      <div className="mb-8">
+        <div className="bg-white rounded-lg shadow p-4">
+          <h2 className="text-lg font-semibold mb-2">🐌 תיקים תקועים</h2>
+          <StaleAlertsList projects={staleAlerts} />
         </div>
       </div>
 

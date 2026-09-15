@@ -110,6 +110,14 @@ function parseVisibleIn(formData: FormData): string[] {
   return VISIBLE_IN_OPTIONS.filter((key) => formData.get(`visible_in_${key}`) === 'true')
 }
 
+/** Phase 8 ("נודניק") - שדה ריק = null = אין בדיקת "תקוע" לסטטוס הזה */
+function parseStaleAfterDays(formData: FormData): number | null {
+  const raw = (formData.get('stale_after_days') as string)?.trim()
+  if (!raw) return null
+  const n = Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
 function revalidateStatusPaths() {
   revalidatePath('/settings')
   revalidatePath('/projects')
@@ -148,6 +156,7 @@ export async function addProjectStatus(formData: FormData): Promise<{ error: str
     color,
     sort_order: nextSortOrder,
     visible_in: parseVisibleIn(formData),
+    stale_after_days: parseStaleAfterDays(formData),
   })
 
   if (error) {
@@ -177,7 +186,7 @@ export async function updateProjectStatus(formData: FormData): Promise<{ error: 
 
   const { error } = await supabase
     .from('project_statuses')
-    .update({ label, color, visible_in: parseVisibleIn(formData) })
+    .update({ label, color, visible_in: parseVisibleIn(formData), stale_after_days: parseStaleAfterDays(formData) })
     .eq('id', id)
 
   if (error) {
@@ -260,6 +269,25 @@ export async function reorderProjectStatuses(orderedIds: string[]): Promise<{ er
   if (errors.length > 0) {
     console.error('reorderProjectStatuses error:', errors)
     return { error: 'שגיאה בשמירת הסדר' }
+  }
+  revalidateStatusPaths()
+  return { error: null }
+}
+
+// ==========================================
+// הגדרת נודניק גלובלית (Phase 8b) - nudnik_settings
+// ==========================================
+
+export async function saveNudnikSettings(formData: FormData): Promise<{ error: string | null }> {
+  const hide_badge_while_snoozed = formData.get('hide_badge_while_snoozed') === 'true'
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('nudnik_settings')
+    .upsert({ id: true, hide_badge_while_snoozed }, { onConflict: 'id' })
+
+  if (error) {
+    console.error('saveNudnikSettings error:', error)
+    return { error: 'שגיאה בשמירת הגדרת הנודניק' }
   }
   revalidateStatusPaths()
   return { error: null }

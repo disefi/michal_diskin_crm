@@ -1,33 +1,34 @@
 import { createClient } from '@/lib/supabase/server'
 import AppShell from '@/components/AppShell'
 import CollectionsTable, { MilestoneRow } from '@/components/CollectionsTable'
+import PaidPaymentsList, { PaidMilestoneRow } from '@/components/PaidPaymentsList'
+import FutureCollectionsSummary, { FutureCollectionRow } from '@/components/FutureCollectionsSummary'
 import { ProjectStatus } from '@/lib/constants'
+
+function outstanding(m: MilestoneRow): number {
+  return m.status === 'partial' ? Math.max(0, Number(m.amount) - Number(m.paid_amount)) : Number(m.amount)
+}
 
 export default async function CollectionsPage() {
   const supabase = await createClient()
 
   const { data: statusesData } = await supabase
     .from('project_statuses')
-    .select('id, label, color, sort_order, is_active, visible_in')
+    .select('id, label, color, sort_order, is_active, visible_in, stale_after_days')
     .order('sort_order', { ascending: true })
   const statuses = (statusesData ?? []) as ProjectStatus[]
-  const collectionsVisibleIds = new Set(statuses.filter((s) => s.visible_in.includes('collections')).map((s) => s.id))
   const statusById = new Map(statuses.map((s) => [s.id, s]))
 
   const { data } = await supabase
     .from('payment_milestones')
-    .select('id, title, amount, status, condition_met, trigger_status_id, projects(id, title, status_id, clients(name))')
+    .select('id, title, amount, status, paid_amount, trigger_status_id, projects(id, title, status_id, clients(name))')
     .order('created_at', { ascending: false })
 
+  // Phase 9 + 9b - "תשלומים" (לשעבר "גביות") - חלק 1: מה שעדיין לא שולם במלואו
+  // (pending/requested/partial). ללא קשר לאיזה סטטוס תיק מוגדר כ"גלוי בגביות" -
+  // כל חוב פתוח מוצג תמיד.
   const milestones: MilestoneRow[] = (data ?? [])
-    .filter((m: any) => {
-      const projectStatusId = m.projects?.status_id
-      const visibleByStatus = !!projectStatusId && collectionsVisibleIds.has(projectStatusId)
-      // הגנה אוטומטית: גם אם הסטטוס הנוכחי של התיק לא מסומן לגבייה, כל עוד יש
-      // חוב שעדיין לא שולם - הוא ימשיך להופיע כאן, כדי שלא תפספס תשלום בטעות
-      const hasUnpaidDebt = m.status !== 'paid'
-      return visibleByStatus || hasUnpaidDebt
-    })
+    .filter((m: any) => m.status !== 'paid')
     .map((m: any) => {
       const trigger = m.trigger_status_id ? statusById.get(m.trigger_status_id) : undefined
       return {
@@ -35,7 +36,7 @@ export default async function CollectionsPage() {
         title: m.title,
         amount: m.amount,
         status: m.status,
-        condition_met: m.condition_met,
+        paid_amount: m.paid_amount ?? 0,
         project_id: m.projects?.id ?? '',
         project_title: m.projects?.title ?? '-',
         client: m.projects?.clients?.name ?? '-',
@@ -44,15 +45,55 @@ export default async function CollectionsPage() {
       }
     })
 
+  // חלק 2: תיעוד של מה ששולם במלואו בפועל
+  const paidMilestones: PaidMilestoneRow[] = (data ?? [])
+    .filter((m: any) => m.status === 'paid')
+    .map((m: any) => ({
+      id: m.id,
+      title: m.title,
+      amount: m.amount,
+      status: m.status,
+      paid_amount: m.paid_amount ?? 0,
+      project_id: m.projects?.id ?? '',
+      project_title: m.projects?.title ?? '-',
+      client: m.projects?.clients?.name ?? '-',
+    }))
+
+  // Phase 9c ("גביות עתידיות") - כל הצעות המחיר שאושרו (payment_milestones נוצר
+  // רק באישור הצעה, אז כל שורה כאן כבר שייכת להצעה מאושרת), פחות מה ששולם
+  // ופחות מה ששולם חלקית. אותו נתון בדיוק כמו הסכום הפתוח בטבלה למטה, מקובץ
+  // לפי תיק לצורך הפירוט.
+  const futureTotal = milestones.reduce((sum, m) => sum + outstanding(m), 0)
+  const futureByProject = new Map<string, FutureCollectionRow>()
+  for (const m of milestones) {
+    const existing = futureByProject.get(m.project_id)
+    if (existing) existing.amount += outstanding(m)
+    else
+      futureByProject.set(m.project_id, {
+        project_id: m.project_id,
+        project_title: m.project_title,
+        client: m.client,
+        amount: outstanding(m),
+      })
+  }
+  const futureRows = Array.from(futureByProject.values()).sort((a, b) => b.amount - a.amount)
+
   return (
     <AppShell>
-      <h1 className="text-2xl font-bold mb-2">גביות</h1>
+      <h1 className="text-2xl font-bold mb-2">תשלומים</h1>
       <p className="text-sm text-gray-500 mb-4">
-        שלבי הגבייה נוצרים אוטומטית מ&quot;אופן תשלום&quot; באישור הצעת מחיר. סמן &quot;התקיים&quot; כשהתנאי
-        בפועל מתקיים - זה יופיע כהתראה בדשבורד לדרוש תשלום. אם הוגדרה לשורה תגית סטטוס, היא תסומן
-        אוטומטית ברגע שהתיק מגיע לאותו סטטוס.
+        שנו את הסטטוס ישירות מהרשימה - &quot;נדרש תשלום&quot; מסומן אוטומטית ברגע שהתיק מגיע
+        לשלב המתאים ומדליק התראה בדשבורד. &quot;שולם חלקית&quot; דורש גם להקליד כמה שולם בפועל.
+        תיק עם כמה שלבים פתוחים מוצג כשורה אחת מתקפלת - לחצו עליה כדי לראות את הפירוט.
       </p>
+
+      <FutureCollectionsSummary total={futureTotal} rows={futureRows} />
+
+      <h2 className="text-lg font-semibold mb-2">⏳ ממתין לתשלום</h2>
       <CollectionsTable milestones={milestones} />
+
+      <h2 className="text-lg font-semibold mt-8 mb-2">✅ שולם</h2>
+      <PaidPaymentsList milestones={paidMilestones} />
     </AppShell>
   )
 }

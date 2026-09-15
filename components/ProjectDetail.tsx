@@ -8,7 +8,8 @@ import ProjectFormModal from './ProjectFormModal'
 import InlineStatusSelect from './InlineStatusSelect'
 import InlineUrgencySelect from './InlineUrgencySelect'
 import AddReminderButton from './AddReminderButton'
-import { QUOTE_STATUS_LABELS, QUOTE_STATUS_COLORS, ProjectStatus } from '@/lib/constants'
+import { QUOTE_STATUS_LABELS, QUOTE_STATUS_COLORS, PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS, ProjectStatus } from '@/lib/constants'
+import StaleBadge from './StaleBadge'
 
 type Project = {
   id: string
@@ -20,9 +21,13 @@ type Project = {
   additional_contact: string | null
   description: string | null
   status_id: string | null
+  status_changed_at: string | null
   urgency_level: string
   client_id: string
   client: string
+  /** Phase 8 ("נודניק") - מחושב בשרת (page.tsx), לא כאן, כדי למנוע hydration mismatch */
+  stale: boolean
+  staleDays: number
 }
 
 type Quote = {
@@ -37,6 +42,8 @@ type Quote = {
   includes_construction: boolean
 }
 type Note = { id: string; title: string | null; content: string; reminder_date: string | null; created_at: string }
+/** Phase 9 - תיעוד מלא של שלבי התשלום של התיק, כולל מה ששולם (בניגוד ל-/collections שמראה רק מה שממתין) */
+type Payment = { id: string; title: string; amount: number; status: string; paid_amount: number }
 
 export default function ProjectDetail({
   project,
@@ -44,12 +51,14 @@ export default function ProjectDetail({
   statuses,
   quotes,
   notes,
+  payments,
 }: {
   project: Project
   clients: { id: string; name: string }[]
   statuses: ProjectStatus[]
   quotes: Quote[]
   notes: Note[]
+  payments: Payment[]
 }) {
   const [editing, setEditing] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -98,8 +107,9 @@ export default function ProjectDetail({
               </div>
             )}
           </div>
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center flex-wrap">
             <InlineStatusSelect projectId={project.id} statusId={project.status_id} statuses={statuses} />
+            <StaleBadge stale={project.stale} days={project.staleDays} />
             <InlineUrgencySelect projectId={project.id} urgency={project.urgency_level} />
           </div>
         </div>
@@ -179,6 +189,37 @@ export default function ProjectDetail({
           </div>
         )}
       </div>
+
+      {payments.length > 0 && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-lg font-semibold mb-3">💳 תשלומים</h2>
+          <p className="text-xs text-gray-400 mb-3">
+            תיעוד מלא של כל שלבי התשלום בתיק זה, כולל מה ששולם. שלבים שממתינים לתשלום מנוהלים
+            ומסומנים ב<Link href="/collections" className="underline">עמוד התשלומים</Link>.
+          </p>
+          <ul className="space-y-1">
+            {payments.map((p) => (
+              <li key={p.id} className="flex items-center justify-between gap-2 border-b py-2 text-sm">
+                <span>{p.title}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-600">
+                    {p.status === 'partial'
+                      ? `₪${Number(p.paid_amount).toLocaleString()} מתוך ₪${Number(p.amount).toLocaleString()}`
+                      : `₪${Number(p.amount).toLocaleString()}`}
+                  </span>
+                  <span className={`text-xs px-2 py-1 rounded-full ${PAYMENT_STATUS_COLORS[p.status] ?? ''}`}>
+                    {PAYMENT_STATUS_LABELS[p.status] ?? p.status}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <div className="flex justify-between text-sm font-medium mt-2 pt-2 border-t">
+            <span>סה&quot;כ</span>
+            <span>₪{payments.reduce((sum, p) => sum + Number(p.amount), 0).toLocaleString()}</span>
+          </div>
+        </div>
+      )}
 
       {notes.length > 0 && (
         <div className="bg-white rounded-lg shadow p-6">

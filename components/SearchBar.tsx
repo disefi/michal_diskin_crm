@@ -1,7 +1,6 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { STATUS_LABELS, STATUS_COLORS } from '@/lib/constants'
 
 export default function SearchBar() {
   const [query, setQuery] = useState('')
@@ -63,9 +62,11 @@ export default function SearchBar() {
                 <div className="text-xs text-gray-500">{r.client} · {r.address}</div>
                 {r.case_number && <div className="text-xs text-gray-400 font-mono">{r.case_number}</div>}
               </div>
-              <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${STATUS_COLORS[r.status]}`}>
-                {STATUS_LABELS[r.status] ?? r.status}
-              </span>
+              {r.statusLabel && (
+                <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${r.statusColor}`}>
+                  {r.statusLabel}
+                </span>
+              )}
             </button>
           ))}
         </div>

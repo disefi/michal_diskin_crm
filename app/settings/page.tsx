@@ -4,7 +4,8 @@ import CaseNumberSettings from '@/components/CaseNumberSettings'
 import QuoteArchiveSettings from '@/components/QuoteArchiveSettings'
 import BusinessProfileSettings from '@/components/BusinessProfileSettings'
 import ProjectStatusesSettings from '@/components/ProjectStatusesSettings'
-import { ProjectStatus } from '@/lib/constants'
+import NudnikSettings from '@/components/NudnikSettings'
+import { ProjectStatus, NudnikSettings as NudnikSettingsType } from '@/lib/constants'
 
 export default async function SettingsPage() {
   const supabase = await createClient()
@@ -32,8 +33,15 @@ export default async function SettingsPage() {
 
   const { data: projectStatusesData } = await supabase
     .from('project_statuses')
-    .select('id, label, color, sort_order, is_active, visible_in')
+    .select('id, label, color, sort_order, is_active, visible_in, stale_after_days')
     .order('sort_order', { ascending: true })
+
+  const { data: nudnikSettingsData } = await supabase
+    .from('nudnik_settings')
+    .select('hide_badge_while_snoozed')
+    .eq('id', true)
+    .maybeSingle()
+  const nudnikSettings: NudnikSettingsType = { hide_badge_while_snoozed: nudnikSettingsData?.hide_badge_while_snoozed ?? true }
 
   return (
     <AppShell>
@@ -52,6 +60,7 @@ export default async function SettingsPage() {
           }}
         />
         <ProjectStatusesSettings statuses={(projectStatusesData ?? []) as ProjectStatus[]} />
+        <NudnikSettings settings={nudnikSettings} />
         <CaseNumberSettings settings={settingsData ?? []} counters={countersData ?? []} />
         <QuoteArchiveSettings months={archiveSettingData?.months ?? 12} />
       </div>

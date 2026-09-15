@@ -17,9 +17,10 @@ function revalidateProjectPaths(id: string) {
 /**
  * האוטומציה שסיכמנו: כשתיק עובר לסטטוס מסוים, בודקת אם יש לו payment_milestones
  * שהתגית הפנימית שלהם (trigger_status_id, שנקבעה מראש ב"אופן תשלום" בהצעה)
- * תואמת לסטטוס החדש - ואם כן, מסמנת אותם כ"התקיים" בדיוק כמו לחיצה ידנית על
- * התיבה ב-/collections (condition_met + condition_met_at), מה שמדליק את
- * ההתראה הקיימת בדשבורד. לא נוצר כאן שום מנגנון התראות חדש.
+ * תואמת לסטטוס החדש - ואם כן, מעדכנת אותם ל-status='requested' (בדיוק כמו
+ * שינוי ידני של הסטטוס ב-/collections), מה שמדליק את ההתראה הקיימת בדשבורד.
+ * מעדכנת רק שורות שעדיין 'pending' - לא דורסת שורה שכבר requested/partial/paid.
+ * (Phase 9b - איחוד השדה הכפול condition_met+status לשדה status יחיד)
  */
 async function autoMarkMilestonesConditionMet(supabase: SupabaseClient, projectId: string, statusId: string | null) {
   if (!statusId) return
@@ -28,7 +29,7 @@ async function autoMarkMilestonesConditionMet(supabase: SupabaseClient, projectI
     .select('id')
     .eq('project_id', projectId)
     .eq('trigger_status_id', statusId)
-    .eq('condition_met', false)
+    .eq('status', 'pending')
 
   if (error) {
     console.error('autoMarkMilestonesConditionMet (select) error:', error)
@@ -38,7 +39,7 @@ async function autoMarkMilestonesConditionMet(supabase: SupabaseClient, projectI
 
   const { error: updateError } = await supabase
     .from('payment_milestones')
-    .update({ condition_met: true, condition_met_at: new Date().toISOString() })
+    .update({ status: 'requested' })
     .in('id', matches.map((m) => m.id))
 
   if (updateError) console.error('autoMarkMilestonesConditionMet (update) error:', updateError)
@@ -54,6 +55,12 @@ export async function saveProject(formData: FormData) {
   const { street, houseNumber, city, addressNote, additionalContact, address, title } = buildAddressAndTitle(formData)
 
   const supabase = await createClient()
+
+  // Phase 8 ("נודניק") - status_changed_at מתעדכן רק אם status_id בפועל השתנה,
+  // לא בכל שמירה (כדי לא "לאפס" את השעון בכל עריכה קטנה של פרטי התיק)
+  const { data: existing } = await supabase.from('projects').select('status_id').eq('id', id).maybeSingle()
+  const statusChanged = existing && existing.status_id !== status_id
+
   const { error } = await supabase
     .from('projects')
     .update({
@@ -68,6 +75,7 @@ export async function saveProject(formData: FormData) {
       description,
       status_id,
       urgency_level,
+      ...(statusChanged ? { status_changed_at: new Date().toISOString() } : {}),
     })
     .eq('id', id)
 
@@ -97,7 +105,14 @@ export async function setProjectStatus(formData: FormData) {
   const id = formData.get('project_id') as string
   const status_id = (formData.get('status_id') as string) || null
   const supabase = await createClient()
-  const { error } = await supabase.from('projects').update({ status_id }).eq('id', id)
+
+  const { data: existing } = await supabase.from('projects').select('status_id').eq('id', id).maybeSingle()
+  const statusChanged = existing && existing.status_id !== status_id
+
+  const { error } = await supabase
+    .from('projects')
+    .update({ status_id, ...(statusChanged ? { status_changed_at: new Date().toISOString() } : {}) })
+    .eq('id', id)
   if (error) console.error('setProjectStatus error:', error)
   else await autoMarkMilestonesConditionMet(supabase, id, status_id)
   revalidateProjectPaths(id)
@@ -111,4 +126,22 @@ export async function setProjectUrgency(formData: FormData) {
   const { error } = await supabase.from('projects').update({ urgency_level }).eq('id', id)
   if (error) console.error('setProjectUrgency error:', error)
   revalidateProjectPaths(id)
+}
+
+/**
+ * Phase 8b ("נודניק") - דחיית התראת "תיק תקוע" ב-days ימים מעכשיו.
+ * days מגיע מהצד הקורא (חלונית הדחייה בדשבורד) - תמיד שווה ל-stale_after_days
+ * של הסטטוס הנוכחי של התיק באותו רגע, לפי ההחלטה שסוכמה.
+ */
+export async function snoozeStaleProject(projectId: string, days: number): Promise<{ error: string | null }> {
+  if (!projectId || !days || days < 1) return { error: 'נתונים חסרים' }
+  const supabase = await createClient()
+  const until = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
+  const { error } = await supabase.from('projects').update({ stale_snoozed_until: until }).eq('id', projectId)
+  if (error) {
+    console.error('snoozeStaleProject error:', error)
+    return { error: 'שגיאה בדחיית ההתראה' }
+  }
+  revalidateProjectPaths(projectId)
+  return { error: null }
 }

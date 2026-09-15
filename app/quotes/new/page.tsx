@@ -21,7 +21,7 @@ export default async function NewQuotePage({
 
   const { data: statusesData } = await supabase
     .from('project_statuses')
-    .select('id, label, color, sort_order, is_active, visible_in')
+    .select('id, label, color, sort_order, is_active, visible_in, stale_after_days')
     .order('sort_order', { ascending: true })
   const statuses = (statusesData ?? []) as ProjectStatus[]
 

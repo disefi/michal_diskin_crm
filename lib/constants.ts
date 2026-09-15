@@ -1,23 +1,3 @@
-export const STATUS_LABELS: Record<string, string> = {
-  new: 'חדש',
-  in_review: 'בבדיקה',
-  quote_sent: 'הצעה נשלחה',
-  approved: 'אושר',
-  in_progress: 'בביצוע',
-  completed: 'הושלם',
-  cancelled: 'בוטל',
-}
-
-export const STATUS_COLORS: Record<string, string> = {
-  new: 'bg-gray-100 text-gray-800',
-  in_review: 'bg-yellow-100 text-yellow-800',
-  quote_sent: 'bg-blue-100 text-blue-800',
-  approved: 'bg-purple-100 text-purple-800',
-  in_progress: 'bg-orange-100 text-orange-800',
-  completed: 'bg-green-100 text-green-800',
-  cancelled: 'bg-red-100 text-red-800',
-}
-
 export const URGENCY_LABELS: Record<string, string> = {
   normal: 'רגילה',
   urgent: 'דחופה',
@@ -64,12 +44,14 @@ export const DEFAULT_TERMS_TEXT = `המחירים אינם כוללים מע"מ.
 export const PAYMENT_STATUS_LABELS: Record<string, string> = {
   pending: 'ממתין',
   requested: 'נדרש תשלום',
+  partial: 'שולם חלקית',
   paid: 'שולם',
 }
 
 export const PAYMENT_STATUS_COLORS: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-600',
   requested: 'bg-orange-100 text-orange-800',
+  partial: 'bg-blue-100 text-blue-800',
   paid: 'bg-green-100 text-green-800',
 }
 
@@ -102,4 +84,11 @@ export type ProjectStatus = {
   sort_order: number
   is_active: boolean
   visible_in: string[]
+  /** Phase 8 ("נודניק") - כמה ימים בסטטוס הזה נחשבים "תקוע". null = אין בדיקה לסטטוס הזה */
+  stale_after_days: number | null
+}
+
+/** Phase 8b - הגדרה גלובלית יחידה: האם דחיית התראת נודניק מסתירה גם את התג 🐌 */
+export type NudnikSettings = {
+  hide_badge_while_snoozed: boolean
 }

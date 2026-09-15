@@ -1,17 +1,15 @@
 'use client'
-import { useState, useTransition } from 'react'
+import { Fragment, useState } from 'react'
 import Link from 'next/link'
-import SortableHeader from './SortableHeader'
-import { useSort } from '@/lib/useSort'
-import { setMilestoneStatus, toggleConditionMet } from '@/app/collections/actions'
-import { PAYMENT_STATUS_LABELS, PAYMENT_STATUS_COLORS } from '@/lib/constants'
+import MilestoneStatusControl from './MilestoneStatusControl'
 
 export type MilestoneRow = {
   id: string
   title: string
   amount: number
   status: string
-  condition_met: boolean
+  /** Phase 9b - כמה שולם בפועל, רלוונטי בעיקר לסטטוס 'partial' */
+  paid_amount: number
   project_id: string
   project_title: string
   client: string
@@ -19,23 +17,93 @@ export type MilestoneRow = {
   trigger_status_color?: string | null
 }
 
-export default function CollectionsTable({ milestones }: { milestones: MilestoneRow[] }) {
-  const [isPending, startTransition] = useTransition()
-  const { sorted, sortKey, sortDir, toggleSort } = useSort<MilestoneRow>(milestones, 'status', 'asc')
+type ProjectGroup = {
+  project_id: string
+  project_title: string
+  client: string
+  /** סכום הנותר לגבייה בפועל בקבוצה - לא סתם סכום כל השלבים, אלא בניכוי מה ששולם חלקית */
+  outstandingTotal: number
+  milestones: MilestoneRow[]
+}
 
-  function handleConditionToggle(id: string, met: boolean) {
-    startTransition(() => {
-      toggleConditionMet(id, met)
+function outstanding(m: MilestoneRow): number {
+  return m.status === 'partial' ? Math.max(0, Number(m.amount) - Number(m.paid_amount)) : Number(m.amount)
+}
+
+function groupByProject(milestones: MilestoneRow[]): ProjectGroup[] {
+  const map = new Map<string, ProjectGroup>()
+  for (const m of milestones) {
+    const existing = map.get(m.project_id)
+    if (existing) {
+      existing.milestones.push(m)
+      existing.outstandingTotal += outstanding(m)
+    } else {
+      map.set(m.project_id, {
+        project_id: m.project_id,
+        project_title: m.project_title,
+        client: m.client,
+        outstandingTotal: outstanding(m),
+        milestones: [m],
+      })
+    }
+  }
+  return Array.from(map.values())
+}
+
+/**
+ * "תשלומים" (Phase 9 + 9b) - מציג רק שלבי תשלום שעדיין לא שולמו במלואם
+ * ("pending"/"requested"/"partial"). שלבים ששולמו במלואם מתועדים ב-PaidPaymentsList.
+ * אם לתיק יש 2+ שלבים פתוחים, הם מקובצים לשורה אחת מתקפלת (accordion).
+ */
+export default function CollectionsTable({ milestones }: { milestones: MilestoneRow[] }) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  const groups = groupByProject(milestones)
+
+  function toggleExpand(projectId: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(projectId)) next.delete(projectId)
+      else next.add(projectId)
+      return next
     })
   }
 
-  function handleStatusChange(id: string, status: string) {
-    const formData = new FormData()
-    formData.set('milestone_id', id)
-    formData.set('status', status)
-    startTransition(() => {
-      setMilestoneStatus(formData)
-    })
+  function renderMilestoneRow(m: MilestoneRow, indented: boolean) {
+    return (
+      <tr key={m.id} className="border-t hover:bg-gray-50">
+        <td className={`p-3 ${indented ? 'pr-8 text-gray-600' : ''}`}>{m.title}</td>
+        <td className="p-3">
+          {!indented && (
+            <Link href={`/projects/${m.project_id}`} className="hover:underline">
+              {m.project_title}
+            </Link>
+          )}
+        </td>
+        <td className="p-3">{!indented && m.client}</td>
+        <td className="p-3">
+          {m.status === 'partial' ? (
+            <span>
+              ₪{Number(m.paid_amount).toLocaleString()} מתוך ₪{Number(m.amount).toLocaleString()}
+            </span>
+          ) : (
+            <span>₪{Number(m.amount).toLocaleString()}</span>
+          )}
+        </td>
+        <td className="p-3">
+          {m.trigger_status_label ? (
+            <span className={`text-xs px-2 py-1 rounded-full ${m.trigger_status_color ?? 'bg-gray-100 text-gray-600'}`}>
+              {m.trigger_status_label}
+            </span>
+          ) : (
+            <span className="text-xs text-gray-300">—</span>
+          )}
+        </td>
+        <td className="p-3">
+          <MilestoneStatusControl id={m.id} status={m.status} amount={m.amount} paidAmount={m.paid_amount} />
+        </td>
+      </tr>
+    )
   }
 
   return (
@@ -43,59 +111,52 @@ export default function CollectionsTable({ milestones }: { milestones: Milestone
       <table className="w-full text-right">
         <thead className="bg-gray-100 text-sm text-gray-600">
           <tr>
-            <SortableHeader label="שלב" sortKey="title" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
-            <SortableHeader label="תיק" sortKey="project_title" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
-            <SortableHeader label="לקוח" sortKey="client" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
-            <SortableHeader label="סכום" sortKey="amount" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
+            <th className="p-3">שלב</th>
+            <th className="p-3">תיק</th>
+            <th className="p-3">לקוח</th>
+            <th className="p-3">סכום</th>
             <th className="p-3">תגית שלב</th>
-            <th className="p-3">התקיים?</th>
-            <SortableHeader label="סטטוס" sortKey="status" currentKey={sortKey} currentDir={sortDir} onSort={toggleSort} />
+            <th className="p-3">סטטוס</th>
           </tr>
         </thead>
         <tbody>
-          {sorted.map((m) => (
-            <tr key={m.id} className="border-t hover:bg-gray-50">
-              <td className="p-3">{m.title}</td>
-              <td className="p-3">
-                <Link href={`/projects/${m.project_id}`} className="hover:underline">{m.project_title}</Link>
-              </td>
-              <td className="p-3">{m.client}</td>
-              <td className="p-3">₪{Number(m.amount).toLocaleString()}</td>
-              <td className="p-3">
-                {m.trigger_status_label ? (
-                  <span className={`text-xs px-2 py-1 rounded-full ${m.trigger_status_color ?? 'bg-gray-100 text-gray-600'}`}>
-                    {m.trigger_status_label}
-                  </span>
-                ) : (
-                  <span className="text-xs text-gray-300">—</span>
-                )}
-              </td>
-              <td className="p-3">
-                <input
-                  type="checkbox"
-                  checked={m.condition_met}
-                  disabled={isPending}
-                  onChange={(e) => handleConditionToggle(m.id, e.target.checked)}
-                  className="w-4 h-4"
-                />
-              </td>
-              <td className="p-3">
-                <select
-                  value={m.status}
-                  disabled={isPending}
-                  onChange={(e) => handleStatusChange(m.id, e.target.value)}
-                  className={`text-xs px-2 py-1 rounded-full border-0 cursor-pointer ${PAYMENT_STATUS_COLORS[m.status] ?? ''}`}
+          {groups.map((g) => {
+            if (g.milestones.length === 1) return renderMilestoneRow(g.milestones[0], false)
+
+            const isOpen = expanded.has(g.project_id)
+            return (
+              <Fragment key={g.project_id}>
+                <tr
+                  className="border-t hover:bg-gray-50 cursor-pointer bg-gray-50"
+                  onClick={() => toggleExpand(g.project_id)}
                 >
-                  {Object.entries(PAYMENT_STATUS_LABELS).map(([k, l]) => (
-                    <option key={k} value={k}>{l}</option>
-                  ))}
-                </select>
-              </td>
-            </tr>
-          ))}
-          {sorted.length === 0 && (
+                  <td className="p-3">
+                    <span className="inline-flex items-center gap-1.5 font-medium">
+                      <span className={`inline-block transition-transform ${isOpen ? 'rotate-90' : ''}`}>▶</span>
+                      {g.milestones.length} פריטים
+                    </span>
+                  </td>
+                  <td className="p-3">
+                    <Link
+                      href={`/projects/${g.project_id}`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="hover:underline"
+                    >
+                      {g.project_title}
+                    </Link>
+                  </td>
+                  <td className="p-3">{g.client}</td>
+                  <td className="p-3 font-medium">₪{g.outstandingTotal.toLocaleString()}</td>
+                  <td className="p-3" />
+                  <td className="p-3" />
+                </tr>
+                {isOpen && g.milestones.map((m) => renderMilestoneRow(m, true))}
+              </Fragment>
+            )
+          })}
+          {groups.length === 0 && (
             <tr>
-              <td colSpan={7} className="p-6 text-center text-gray-400">אין נתוני גבייה עדיין</td>
+              <td colSpan={6} className="p-6 text-center text-gray-400">אין תשלומים ממתינים כרגע</td>
             </tr>
           )}
         </tbody>

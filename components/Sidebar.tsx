@@ -6,7 +6,7 @@ const LINKS = [
   { href: '/projects', label: 'תיקים', icon: '📁' },
   { href: '/quotes', label: 'הצעות מחיר', icon: '📄' },
   { href: '/in-progress', label: 'בביצוע', icon: '🛠️' },
-  { href: '/collections', label: 'גביות', icon: '💰' },
+  { href: '/collections', label: 'תשלומים', icon: '💰' },
   { href: '/archive', label: 'ארכיון', icon: '🗄️' },
   { href: '/settings', label: 'הגדרות', icon: '⚙️' },
 ]
